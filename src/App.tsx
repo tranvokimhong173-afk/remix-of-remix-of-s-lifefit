@@ -1,15 +1,32 @@
+import { useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { useSmsPermission } from "@/hooks/useSmsPermission";
 import Index from "./pages/Index";
 import Settings from "./pages/Settings";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
+
+// Component để xin quyền SMS khi app khởi động
+const SmsPermissionHandler = () => {
+  const { hasPermission, requestSmsPermission } = useSmsPermission();
+
+  useEffect(() => {
+    if (hasPermission === false) {
+      console.log('[App] Quyền SMS bị từ chối, có thể cần xin lại');
+    } else if (hasPermission === true) {
+      console.log('[App] Đã có quyền SMS');
+    }
+  }, [hasPermission]);
+
+  return null;
+};
 
 // Protected route wrapper
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -35,6 +52,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <SmsPermissionHandler />
       <BrowserRouter>
         <Routes>
           <Route path="/auth" element={<Auth />} />
