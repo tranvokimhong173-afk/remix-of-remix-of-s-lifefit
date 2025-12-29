@@ -1,6 +1,5 @@
 import { useCallback, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { SmsManager } from '@byteowls/capacitor-sms';
 import { getUserProfile } from '@/services/userProfileService';
 import { VITAL_THRESHOLDS } from './useAlertSound';
 import { toast } from 'sonner';
@@ -33,48 +32,78 @@ const checkNetworkStatus = async (): Promise<boolean> => {
   }
 };
 
-// Gửi SMS (native)
-// Lưu ý: tuỳ thiết bị/phiên bản Android, việc "tự gửi" có thể bị chặn nếu app không phải default SMS app.
-const sendNativeSMS = async (phoneNumber: string, message: string): Promise<boolean> => {
+// ID tự tăng cho mỗi SMS
+let smsIdCounter = 1;
+
+// Gửi SMS tự động sử dụng capacitor-sms-sender
+const sendDirectSMS = async (phoneNumber: string, message: string): Promise<boolean> => {
   if (!Capacitor.isNativePlatform()) {
-    console.log('SMS chỉ hoạt động trên thiết bị native');
+    console.log('[SMS] Chỉ hoạt động trên thiết bị native');
+    toast.info('SMS chỉ hoạt động trên ứng dụng Android');
     return false;
   }
 
   try {
-    console.log('[SMS] Sending...', {
-      to: phoneNumber,
-      length: message.length,
-      platform: Capacitor.getPlatform(),
-    });
+    console.log('[SMS] Gửi tự động đến:', phoneNumber);
 
-    await SmsManager.send({
-      numbers: [phoneNumber],
+    // Import plugin động
+    const { SmsSender } = await import('capacitor-sms-sender');
+
+    // Kiểm tra và yêu cầu quyền
+    const permissions = await SmsSender.checkPermissions();
+    if (permissions.send_sms !== 'granted') {
+      console.log('[SMS] Yêu cầu quyền gửi SMS...');
+      const requested = await SmsSender.requestPermissions();
+      if (requested.send_sms !== 'granted') {
+        toast.error('Cần cấp quyền SMS', {
+          description: 'Vào Cài đặt > Ứng dụng > S-Life > Quyền > SMS để cấp quyền.',
+        });
+        return false;
+      }
+    }
+
+    // Gửi SMS trực tiếp không cần mở app
+    const result = await SmsSender.send({
+      id: smsIdCounter++,
+      sim: 0, // SIM đầu tiên
+      phone: phoneNumber,
       text: message,
     });
 
-    console.log('[SMS] Sent request successfully');
-    return true;
+    console.log('[SMS] Kết quả:', result);
+    
+    // Kiểm tra status: PENDING, SENT, DELIVERED = thành công, FAILED = thất bại
+    if (result.status === 'SENT' || result.status === 'DELIVERED' || result.status === 'PENDING') {
+      toast.success('Đã gửi SMS cảnh báo!', {
+        description: `Trạng thái: ${result.status}`,
+      });
+      return true;
+    } else {
+      throw new Error(`Trạng thái SMS: ${result.status}`);
+    }
   } catch (error: any) {
-    const raw = typeof error === 'string' ? error : (error?.message ?? JSON.stringify(error));
-    // Các mã lỗi plugin có thể trả về: UNIMPLEMENTED, ERR_SERVICE_NOTFOUND, ERR_NO_NUMBERS, ERR_NO_TEXT, SEND_CANCELLED...
-    console.error('[SMS] Failed:', error);
+    console.error('[SMS] Lỗi:', error);
 
-    // Hiển thị lý do rõ ràng hơn cho người dùng
-    toast.error('Không thể gửi SMS', {
-      description:
-        raw?.includes('ERR_SERVICE_NOTFOUND')
-          ? 'Thiết bị không hỗ trợ gửi SMS (không có SIM/không có dịch vụ SMS).'
-          : raw?.includes('UNIMPLEMENTED')
-            ? 'SMS không hỗ trợ trên bản web. Hãy test trên app Android đã cài.'
-            : raw?.includes('ERR_NO_NUMBERS')
-              ? 'Chưa có số nhận. Hãy nhập & lưu “Số điện thoại khẩn cấp” trong Cài đặt.'
-              : raw?.includes('ERR_NO_TEXT')
-                ? 'Nội dung SMS trống.'
-                : 'Vui lòng kiểm tra SIM/SMS hoạt động và cấp quyền SMS cho ứng dụng.',
-    });
-
-    return false;
+    // Fallback: thử dùng plugin cũ (mở app SMS)
+    try {
+      const { SmsManager } = await import('@byteowls/capacitor-sms');
+      await SmsManager.send({
+        numbers: [phoneNumber],
+        text: message,
+      });
+      toast.info('Đã mở ứng dụng SMS - vui lòng nhấn gửi');
+      return true;
+    } catch (fallbackError) {
+      console.error('[SMS Fallback] Lỗi:', fallbackError);
+      
+      const errorMsg = typeof error === 'string' ? error : (error?.message ?? 'Lỗi không xác định');
+      toast.error('Không thể gửi SMS', {
+        description: errorMsg.includes('permission')
+          ? 'Vui lòng cấp quyền gửi SMS cho ứng dụng trong Cài đặt.'
+          : 'Kiểm tra SIM và cấp quyền SMS cho ứng dụng.',
+      });
+      return false;
+    }
   }
 };
 
@@ -99,10 +128,10 @@ const formatSmsMessage = (
   }
   
   if (location) {
-    message += `📍 Vị trí: https://maps.google.com/?q=${location.latitude},${location.longitude}`;
+    message += `📍 https://maps.google.com/?q=${location.latitude},${location.longitude}\n`;
   }
   
-  message += `\nThời gian: ${new Date().toLocaleString('vi-VN')}`;
+  message += `⏰ ${new Date().toLocaleString('vi-VN')}`;
   
   return message;
 };
@@ -121,7 +150,7 @@ export const useSmsAlert = (userId: string = 'device1') => {
   ): Promise<boolean> => {
     const now = Date.now();
     if (now - lastSmsTimeRef.current < SMS_COOLDOWN) {
-      console.log('SMS bị bỏ qua - trong thời gian cooldown');
+      console.log('[SMS] Bị bỏ qua - trong thời gian cooldown');
       return false;
     }
 
@@ -129,28 +158,54 @@ export const useSmsAlert = (userId: string = 'device1') => {
       // Lấy thông tin profile để lấy số điện thoại khẩn cấp
       const profile = await getUserProfile(userId);
       if (!profile || !profile.emergencyContact) {
-        console.log('Chưa cấu hình số điện thoại khẩn cấp');
+        console.log('[SMS] Chưa cấu hình số điện thoại khẩn cấp');
+        toast.warning('Chưa cài đặt số điện thoại khẩn cấp', {
+          description: 'Vào Cài đặt để thêm số điện thoại người thân.',
+        });
         return false;
       }
 
       const smsMessage = formatSmsMessage(alertType, title, message, vitals, location);
       
-      console.log(`Đang gửi SMS cảnh báo đến ${profile.emergencyContact}`);
+      console.log(`[SMS] Đang gửi đến ${profile.emergencyContact}`);
       
-      const success = await sendNativeSMS(profile.emergencyContact, smsMessage);
+      const success = await sendDirectSMS(profile.emergencyContact, smsMessage);
       
       if (success) {
         lastSmsTimeRef.current = now;
-        toast.success('Đã gửi SMS cảnh báo khẩn cấp!');
         return true;
       }
       
       return false;
     } catch (error) {
-      console.error('Lỗi trong sendSmsAlert:', error);
+      console.error('[SMS] Lỗi trong sendSmsAlert:', error);
       return false;
     }
   }, [userId]);
+
+  // Gửi SMS tự động khi vượt ngưỡng (không cần internet)
+  const sendAutoSmsAlert = useCallback(async (
+    alertType: 'vital' | 'fall' | 'zone',
+    title: string,
+    message: string,
+    vitals?: { bpm?: number; spo2?: number; temperature?: number },
+    location?: { latitude: number; longitude: number }
+  ): Promise<boolean> => {
+    // Tránh gửi đồng thời
+    if (isCheckingRef.current) return false;
+    isCheckingRef.current = true;
+
+    try {
+      console.log('[SMS Auto] Gửi tự động không cần internet');
+      const result = await sendSmsAlert(alertType, title, message, vitals, location);
+      isCheckingRef.current = false;
+      return result;
+    } catch (error) {
+      console.error('[SMS Auto] Lỗi:', error);
+      isCheckingRef.current = false;
+      return false;
+    }
+  }, [sendSmsAlert]);
 
   const checkAndSendSmsIfOffline = useCallback(async (
     alertType: 'vital' | 'fall' | 'zone',
@@ -167,17 +222,17 @@ export const useSmsAlert = (userId: string = 'device1') => {
       const hasInternet = await checkNetworkStatus();
       
       if (!hasInternet) {
-        console.log('Không có internet - Chuyển sang gửi SMS');
+        console.log('[SMS] Không có internet - Gửi SMS tự động');
         const result = await sendSmsAlert(alertType, title, message, vitals, location);
         isCheckingRef.current = false;
         return result;
       }
       
-      console.log('Có internet - Sử dụng email/push notification');
+      console.log('[SMS] Có internet - Sử dụng email/push notification');
       isCheckingRef.current = false;
       return false; // Trả về false để hook khác xử lý (email)
     } catch (error) {
-      console.error('Lỗi kiểm tra mạng:', error);
+      console.error('[SMS] Lỗi kiểm tra mạng:', error);
       isCheckingRef.current = false;
       return false;
     }
@@ -221,7 +276,8 @@ export const useSmsAlert = (userId: string = 'device1') => {
         ? { latitude: data.latitude, longitude: data.longitude }
         : undefined;
 
-      return await checkAndSendSmsIfOffline(
+      // Gửi SMS tự động khi phát hiện té ngã
+      return await sendAutoSmsAlert(
         'fall',
         'PHÁT HIỆN TÉ NGÃ!',
         'Cần kiểm tra ngay!',
@@ -230,13 +286,13 @@ export const useSmsAlert = (userId: string = 'device1') => {
       );
     }
 
-    // Gửi SMS nếu có chỉ số bất thường
+    // Gửi SMS tự động nếu có chỉ số bất thường
     if (alerts.length > 0) {
       const location = data.latitude && data.longitude
         ? { latitude: data.latitude, longitude: data.longitude }
         : undefined;
 
-      return await checkAndSendSmsIfOffline(
+      return await sendAutoSmsAlert(
         'vital',
         'Chỉ số bất thường!',
         alerts.join('. '),
@@ -246,7 +302,7 @@ export const useSmsAlert = (userId: string = 'device1') => {
     }
 
     return false;
-  }, [checkAndSendSmsIfOffline]);
+  }, [sendAutoSmsAlert]);
 
   const sendZoneSmsAlert = useCallback(async (
     isOutside: boolean,
@@ -254,14 +310,14 @@ export const useSmsAlert = (userId: string = 'device1') => {
   ): Promise<boolean> => {
     if (!isOutside) return false;
 
-    return await checkAndSendSmsIfOffline(
+    return await sendAutoSmsAlert(
       'zone',
       'Rời khỏi vùng an toàn!',
       'Người dùng đã ra khỏi vùng an toàn.',
       undefined,
       location
     );
-  }, [checkAndSendSmsIfOffline]);
+  }, [sendAutoSmsAlert]);
 
   // Gửi SMS trực tiếp (bỏ qua kiểm tra internet)
   const forceSendSms = useCallback(async (
@@ -276,6 +332,7 @@ export const useSmsAlert = (userId: string = 'device1') => {
 
   return {
     sendSmsAlert,
+    sendAutoSmsAlert,
     checkAndSendSmsIfOffline,
     checkVitalsAndSendSms,
     sendZoneSmsAlert,
