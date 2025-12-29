@@ -16,7 +16,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import Header from "@/components/Header";
-import { ArrowLeft, Loader2, MapPin, Shield, LocateFixed, Phone, Mail, MessageSquare, TestTube } from "lucide-react";
+import { ArrowLeft, Loader2, MapPin, Shield, LocateFixed, Phone, Mail, MessageSquare, TestTube, ShieldCheck, ShieldAlert } from "lucide-react";
 import { Link } from "react-router-dom";
 import { saveUserProfile } from "@/services/userProfileService";
 import { useState, useEffect, useMemo } from "react";
@@ -25,7 +25,9 @@ import { getUserProfile } from "@/services/userProfileService";
 import { useGoogleMaps } from "@/hooks/useGoogleMaps";
 import { useEmailAlert } from "@/hooks/useEmailAlert";
 import { useSmsAlert } from "@/hooks/useSmsAlert";
+import { useSmsPermission } from "@/hooks/useSmsPermission";
 import { supabase } from "@/integrations/supabase/client";
+import { Capacitor } from "@capacitor/core";
 const formSchema = z.object({
   name: z.string().min(1, "Tên không được để trống").max(100, "Tên không được quá 100 ký tự"),
   age: z.coerce.number().min(1, "Tuổi phải lớn hơn 0").max(150, "Tuổi không hợp lệ"),
@@ -62,6 +64,28 @@ const Settings = () => {
   const { isLoaded } = useGoogleMaps();
   const { sendAlertEmail } = useEmailAlert(userId);
   const { forceSendSms, checkNetworkStatus } = useSmsAlert(userId);
+  const { hasPermission: hasSmsPermission, isChecking: isCheckingSmsPermission, requestSmsPermission } = useSmsPermission();
+  const [isRequestingSmsPermission, setIsRequestingSmsPermission] = useState(false);
+  const isAndroidNative = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
+
+  const handleRequestSmsPermission = async () => {
+    setIsRequestingSmsPermission(true);
+    try {
+      const granted = await requestSmsPermission();
+      if (granted) {
+        toast.success('Đã cấp quyền SMS thành công!');
+      } else {
+        toast.error('Quyền SMS bị từ chối', {
+          description: 'Vui lòng vào Cài đặt > Ứng dụng > S-Life > Quyền để cấp quyền SMS thủ công.',
+        });
+      }
+    } catch (error) {
+      console.error('Lỗi xin quyền SMS:', error);
+      toast.error('Lỗi khi xin quyền SMS');
+    } finally {
+      setIsRequestingSmsPermission(false);
+    }
+  };
 
   const handleTestEmail = async () => {
     // Lấy email hiện tại từ form (chưa lưu cũng test được)
@@ -706,6 +730,67 @@ const Settings = () => {
                     * SMS chỉ hoạt động trên thiết bị Android. Email cần có kết nối internet.
                   </p>
                 </div>
+
+                {/* SMS Permission Section - Only show on Android */}
+                {isAndroidNative && (
+                  <div className="border-t border-border pt-6 mt-6">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className={`h-10 w-10 rounded-xl flex items-center justify-center shadow-lg ${
+                        hasSmsPermission 
+                          ? 'bg-gradient-to-br from-green-500 to-emerald-500' 
+                          : 'bg-gradient-to-br from-red-500 to-rose-500'
+                      }`}>
+                        {hasSmsPermission ? (
+                          <ShieldCheck className="h-5 w-5 text-white" />
+                        ) : (
+                          <ShieldAlert className="h-5 w-5 text-white" />
+                        )}
+                      </div>
+                      <h3 className={`text-xl font-bold bg-clip-text text-transparent ${
+                        hasSmsPermission 
+                          ? 'bg-gradient-to-r from-green-500 to-emerald-500' 
+                          : 'bg-gradient-to-r from-red-500 to-rose-500'
+                      }`}>
+                        Quyền gửi SMS
+                      </h3>
+                    </div>
+                    
+                    {hasSmsPermission === null || isCheckingSmsPermission ? (
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span className="text-sm">Đang kiểm tra quyền...</span>
+                      </div>
+                    ) : hasSmsPermission ? (
+                      <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                        <ShieldCheck className="h-5 w-5" />
+                        <span className="text-sm font-medium">Ứng dụng đã được cấp quyền gửi SMS</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <p className="text-sm text-muted-foreground">
+                          Ứng dụng cần quyền gửi SMS để gửi cảnh báo khẩn cấp khi không có internet.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          onClick={handleRequestSmsPermission}
+                          disabled={isRequestingSmsPermission}
+                          className="gap-2"
+                        >
+                          {isRequestingSmsPermission ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <ShieldAlert className="h-4 w-4" />
+                          )}
+                          {isRequestingSmsPermission ? "Đang xin quyền..." : "Cấp quyền SMS"}
+                        </Button>
+                        <p className="text-xs text-muted-foreground">
+                          Nếu nút không hoạt động, vui lòng vào Cài đặt → Ứng dụng → S-Life → Quyền → SMS để cấp quyền thủ công.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
