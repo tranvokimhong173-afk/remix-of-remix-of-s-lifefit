@@ -49,14 +49,22 @@ const sendDirectSMS = async (phoneNumber: string, message: string): Promise<bool
     // Import plugin động
     const { SmsSender } = await import('capacitor-sms-sender');
 
-    // Kiểm tra và yêu cầu quyền
+    // Kiểm tra và yêu cầu quyền (plugin cần cả SEND_SMS + READ_PHONE_STATE)
     const permissions = await SmsSender.checkPermissions();
-    if (permissions.send_sms !== 'granted') {
-      console.log('[SMS] Yêu cầu quyền gửi SMS...');
+    const hasSendSms = permissions.send_sms === 'granted';
+    const hasReadPhoneState = permissions.read_phone_state === 'granted';
+
+    if (!hasSendSms || !hasReadPhoneState) {
+      console.log('[SMS] Thiếu quyền, đang yêu cầu...', permissions);
       const requested = await SmsSender.requestPermissions();
-      if (requested.send_sms !== 'granted') {
-        toast.error('Cần cấp quyền SMS', {
-          description: 'Vào Cài đặt > Ứng dụng > S-Life > Quyền > SMS để cấp quyền.',
+
+      const grantedSendSms = requested.send_sms === 'granted';
+      const grantedReadPhoneState = requested.read_phone_state === 'granted';
+
+      if (!grantedSendSms || !grantedReadPhoneState) {
+        toast.error('Cần cấp quyền để gửi SMS tự động', {
+          description:
+            'Hãy cấp quyền “SMS” và “Trạng thái điện thoại” (READ_PHONE_STATE) cho ứng dụng trong Cài đặt.',
         });
         return false;
       }
