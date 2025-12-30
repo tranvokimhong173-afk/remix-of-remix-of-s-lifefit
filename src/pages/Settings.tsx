@@ -711,7 +711,7 @@ const Settings = () => {
                       )}
                       {isSendingTestEmail ? "Đang gửi..." : "Gửi Email thử"}
                     </Button>
-                    <Button
+                  <Button
                       type="button"
                       variant="outline"
                       onClick={handleTestSms}
@@ -727,8 +727,19 @@ const Settings = () => {
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground mt-2">
-                    * SMS chỉ hoạt động trên thiết bị Android. Email cần có kết nối internet.
+                    * Email cần kết nối internet. SMS chỉ hoạt động trên thiết bị Android và sẽ tự động gửi không cần mở app.
                   </p>
+                  {isAndroidNative && (
+                    <div className="mt-3 p-3 bg-muted/50 rounded-lg border border-border">
+                      <p className="text-sm font-medium text-foreground mb-2">💡 Lưu ý về SMS tự động:</p>
+                      <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                        <li>SMS sẽ tự động gửi khi phát hiện chỉ số bất thường hoặc té ngã</li>
+                        <li>Không cần internet - sử dụng mạng di động</li>
+                        <li>Cần cấp quyền SMS cho ứng dụng (xem phần bên dưới)</li>
+                        <li>Đảm bảo SIM có dịch vụ SMS hoạt động</li>
+                      </ul>
+                    </div>
+                  )}
                 </div>
 
                 {/* SMS Permission Section - Only show on Android */}
