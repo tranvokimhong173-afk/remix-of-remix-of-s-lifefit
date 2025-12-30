@@ -92,26 +92,22 @@ const sendDirectSMS = async (phoneNumber: string, message: string): Promise<bool
   } catch (error: any) {
     console.error('[SMS] Lỗi:', error);
 
-    // Fallback: thử dùng plugin cũ (mở app SMS)
-    try {
-      const { SmsManager } = await import('@byteowls/capacitor-sms');
-      await SmsManager.send({
-        numbers: [phoneNumber],
-        text: message,
-      });
-      toast.info('Đã mở ứng dụng SMS - vui lòng nhấn gửi');
-      return true;
-    } catch (fallbackError) {
-      console.error('[SMS Fallback] Lỗi:', fallbackError);
-      
-      const errorMsg = typeof error === 'string' ? error : (error?.message ?? 'Lỗi không xác định');
-      toast.error('Không thể gửi SMS', {
-        description: errorMsg.includes('permission')
-          ? 'Vui lòng cấp quyền gửi SMS cho ứng dụng trong Cài đặt.'
-          : 'Kiểm tra SIM và cấp quyền SMS cho ứng dụng.',
-      });
-      return false;
-    }
+    // Không fallback sang mở app nhắn tin vì bạn cần "tự động gửi".
+    // Nếu tới đây mà vẫn không gửi được, thường là do:
+    // - Thiếu quyền ở mức hệ điều hành/OEM chặn gửi SMS nền
+    // - Plugin không tương thích phiên bản Android/ROM
+    // - Thiết bị không có SIM/không cho phép SMS
+    const errorMsg = typeof error === 'string' ? error : (error?.message ?? 'Lỗi không xác định');
+
+    toast.error('Không thể gửi SMS tự động', {
+      description:
+        `${errorMsg}` +
+        (errorMsg.toLowerCase().includes('permission')
+          ? ' (Hãy cấp quyền “SMS” và “Trạng thái điện thoại”).'
+          : ' (Kiểm tra SIM/SMS hoặc thiết bị đang chặn gửi SMS nền).'),
+    });
+
+    return false;
   }
 };
 
