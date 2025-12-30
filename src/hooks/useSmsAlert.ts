@@ -37,8 +37,8 @@ let smsIdCounter = 1;
 
 // Gửi SMS tự động sử dụng capacitor-sms-sender
 const sendDirectSMS = async (phoneNumber: string, message: string): Promise<boolean> => {
-  if (!Capacitor.isNativePlatform()) {
-    console.log('[SMS] Chỉ hoạt động trên thiết bị native');
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') {
+    console.log('[SMS] Chỉ hoạt động trên thiết bị Android native');
     toast.info('SMS chỉ hoạt động trên ứng dụng Android');
     return false;
   }
@@ -70,33 +70,38 @@ const sendDirectSMS = async (phoneNumber: string, message: string): Promise<bool
       }
     }
 
-    // Gửi SMS trực tiếp không cần mở app
-    const result = await SmsSender.send({
-      id: smsIdCounter++,
-      sim: 0, // SIM đầu tiên
-      phone: phoneNumber,
-      text: message,
-    });
-
-    console.log('[SMS] Kết quả:', result);
-    
-    // Kiểm tra status: PENDING, SENT, DELIVERED = thành công, FAILED = thất bại
-    if (result.status === 'SENT' || result.status === 'DELIVERED' || result.status === 'PENDING') {
-      toast.success('Đã gửi SMS cảnh báo!', {
-        description: `Trạng thái: ${result.status}`,
+    const trySend = async (sim: number) => {
+      const result = await SmsSender.send({
+        id: smsIdCounter++,
+        sim,
+        phone: phoneNumber,
+        text: message,
       });
+      console.log('[SMS] Kết quả (sim=' + sim + '):', result);
+      return result;
+    };
+
+    // Một số máy có index SIM khác nhau (0/1). Thử lần lượt để tăng tỷ lệ gửi thành công.
+    const first = await trySend(0);
+    if (first.status === 'SENT' || first.status === 'DELIVERED') {
+      toast.success('Đã gửi SMS cảnh báo!', { description: `Trạng thái: ${first.status}` });
       return true;
-    } else {
-      throw new Error(`Trạng thái SMS: ${result.status}`);
     }
+
+    if (first.status === 'FAILED') {
+      const second = await trySend(1);
+      if (second.status === 'SENT' || second.status === 'DELIVERED') {
+        toast.success('Đã gửi SMS cảnh báo!', { description: `Trạng thái: ${second.status}` });
+        return true;
+      }
+
+      throw new Error(`Trạng thái SMS: ${second.status} (đã thử SIM 0 và SIM 1)`);
+    }
+
+    throw new Error(`Trạng thái SMS: ${first.status}`);
   } catch (error: any) {
     console.error('[SMS] Lỗi:', error);
 
-    // Không fallback sang mở app nhắn tin vì bạn cần "tự động gửi".
-    // Nếu tới đây mà vẫn không gửi được, thường là do:
-    // - Thiếu quyền ở mức hệ điều hành/OEM chặn gửi SMS nền
-    // - Plugin không tương thích phiên bản Android/ROM
-    // - Thiết bị không có SIM/không cho phép SMS
     const errorMsg = typeof error === 'string' ? error : (error?.message ?? 'Lỗi không xác định');
 
     toast.error('Không thể gửi SMS tự động', {
@@ -104,7 +109,7 @@ const sendDirectSMS = async (phoneNumber: string, message: string): Promise<bool
         `${errorMsg}` +
         (errorMsg.toLowerCase().includes('permission')
           ? ' (Hãy cấp quyền “SMS” và “Trạng thái điện thoại”).'
-          : ' (Kiểm tra SIM/SMS hoặc thiết bị đang chặn gửi SMS nền).'),
+          : ' (Kiểm tra SIM có SMS hoạt động; nếu máy 2 SIM hãy thử đổi SIM mặc định).'),
     });
 
     return false;
