@@ -174,10 +174,19 @@ const Settings = () => {
           description: `Đã gửi tới: ${emergencyContact}`,
         });
       } else {
-        toast.error('Không thể gửi SMS tự động', {
-          description:
-            'Kiểm tra: (1) quyền SMS/Trạng thái điện thoại, (2) SIM có SMS hoạt động, (3) máy/nhà mạng có chặn gửi SMS tự động.',
-        });
+        // useSmsAlert/sendDirectSMS sẽ hiển thị toast lỗi chi tiết.
+        // Ở đây chỉ hiển thị thêm thông tin chẩn đoán để dễ debug.
+        try {
+          const { SmsSender } = await import('capacitor-sms-sender');
+          const perm = await SmsSender.checkPermissions();
+          toast.info('SMS test thất bại', {
+            description: `Số khẩn cấp: ${emergencyContact} • send_sms=${perm.send_sms} • read_phone_state=${perm.read_phone_state}`,
+          });
+        } catch {
+          toast.info('SMS test thất bại', {
+            description: `Số khẩn cấp: ${emergencyContact}. Vui lòng xem thông báo lỗi chi tiết phía trên.`,
+          });
+        }
       }
     } catch (error: any) {
       console.error('Lỗi gửi SMS test:', error);
