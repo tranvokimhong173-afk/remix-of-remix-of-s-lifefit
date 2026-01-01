@@ -142,13 +142,22 @@ const Settings = () => {
   const handleTestSms = async () => {
     setIsSendingTestSms(true);
     try {
-      // Check if running on native platform
-      const { Capacitor } = await import('@capacitor/core');
-      if (!Capacitor.isNativePlatform()) {
-        toast.error('SMS chỉ hoạt động trên ứng dụng Android', {
-          description: 'Vui lòng build app và cài đặt trên thiết bị Android để test SMS.',
+      const emergencyContact = (form.getValues('emergencyContact') || '').trim();
+
+      if (!emergencyContact) {
+        toast.error('Chưa có số điện thoại khẩn cấp', {
+          description: 'Vui lòng nhập “Số điện thoại khẩn cấp” rồi bấm “Lưu” trước khi test SMS.',
         });
-        setIsSendingTestSms(false);
+        return;
+      }
+
+      // Chỉ test gửi SMS tự động trên Android native
+      const { Capacitor } = await import('@capacitor/core');
+      const isAndroidNativeNow = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
+      if (!isAndroidNativeNow) {
+        toast.error('SMS chỉ hoạt động trên ứng dụng Android', {
+          description: 'Vui lòng cài app trên máy Android có SIM để test.',
+        });
         return;
       }
 
@@ -159,18 +168,20 @@ const Settings = () => {
         { bpm: 75, spo2: 98, temperature: 36.5 },
         undefined
       );
+
       if (success) {
-        toast.success('Đã gửi yêu cầu SMS!', {
-          description: 'Nếu máy không tự gửi, ứng dụng/hệ điều hành có thể đang chặn gửi SMS tự động.',
+        toast.success('Đã gửi SMS thử nghiệm!', {
+          description: `Đã gửi tới: ${emergencyContact}`,
         });
       } else {
-        toast.error('Không thể gửi SMS.', {
-          description: 'Kiểm tra: (1) đã lưu số điện thoại khẩn cấp, (2) máy có SIM & SMS hoạt động, (3) quyền SMS đã được cấp.',
+        toast.error('Không thể gửi SMS tự động', {
+          description:
+            'Kiểm tra: (1) quyền SMS/Trạng thái điện thoại, (2) SIM có SMS hoạt động, (3) máy/nhà mạng có chặn gửi SMS tự động.',
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Lỗi gửi SMS test:', error);
-      toast.error('Lỗi khi gửi SMS thử nghiệm');
+      toast.error('Lỗi khi gửi SMS thử nghiệm', { description: error?.message });
     } finally {
       setIsSendingTestSms(false);
     }
