@@ -82,7 +82,11 @@ const sendDirectSMS = async (phoneNumber: string, message: string): Promise<bool
     };
 
     // Một số máy có index SIM khác nhau (0/1). Thử lần lượt để tăng tỷ lệ gửi thành công.
+    const attemptResults: Array<{ sim: number; status: string }> = [];
+
     const first = await trySend(0);
+    attemptResults.push({ sim: 0, status: first.status });
+
     if (first.status === 'SENT' || first.status === 'DELIVERED') {
       toast.success('Đã gửi SMS cảnh báo!', { description: `Trạng thái: ${first.status}` });
       return true;
@@ -90,15 +94,25 @@ const sendDirectSMS = async (phoneNumber: string, message: string): Promise<bool
 
     if (first.status === 'FAILED') {
       const second = await trySend(1);
+      attemptResults.push({ sim: 1, status: second.status });
+
       if (second.status === 'SENT' || second.status === 'DELIVERED') {
         toast.success('Đã gửi SMS cảnh báo!', { description: `Trạng thái: ${second.status}` });
         return true;
       }
 
-      throw new Error(`Trạng thái SMS: ${second.status} (đã thử SIM 0 và SIM 1)`);
+      // Nếu vẫn FAILED, trả về lỗi có đủ thông tin để debug
+      throw new Error(
+        `Gửi SMS thất bại. attempts=${JSON.stringify(attemptResults)} permissions=${JSON.stringify({
+          send_sms: hasSendSms ? 'granted' : permissions.send_sms,
+          read_phone_state: hasReadPhoneState ? 'granted' : permissions.read_phone_state,
+        })}`
+      );
     }
 
-    throw new Error(`Trạng thái SMS: ${first.status}`);
+    throw new Error(
+      `Trạng thái SMS không mong đợi: ${first.status}. attempts=${JSON.stringify(attemptResults)}`
+    );
   } catch (error: any) {
     console.error('[SMS] Lỗi:', error);
 
@@ -109,7 +123,7 @@ const sendDirectSMS = async (phoneNumber: string, message: string): Promise<bool
         `${errorMsg}` +
         (errorMsg.toLowerCase().includes('permission')
           ? ' (Hãy cấp quyền “SMS” và “Trạng thái điện thoại”).'
-          : ' (Kiểm tra SIM có SMS hoạt động; nếu máy 2 SIM hãy thử đổi SIM mặc định).'),
+          : ' (Nếu bạn vừa cài bản mới, hãy chạy npx cap sync rồi build lại; một số máy/nhà mạng chặn gửi SMS nền).'),
     });
 
     return false;
