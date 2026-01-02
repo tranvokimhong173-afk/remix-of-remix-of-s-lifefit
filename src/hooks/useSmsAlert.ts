@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { getUserProfile } from '@/services/userProfileService';
 import { VITAL_THRESHOLDS } from './useAlertSound';
 import { toast } from 'sonner';
+import { getSmsMode } from './useSmsMode';
 
 interface VitalData {
   bpm: number;
@@ -35,12 +36,59 @@ const checkNetworkStatus = async (): Promise<boolean> => {
 // ID tự tăng cho mỗi SMS
 let smsIdCounter = 1;
 
+// Mở ứng dụng SMS với nội dung soạn sẵn
+const openSmsApp = async (phoneNumber: string, message: string): Promise<boolean> => {
+  try {
+    // Encode message cho URL
+    const encodedMessage = encodeURIComponent(message);
+    
+    // Tạo SMS URI - hoạt động trên cả Android và iOS
+    const smsUri = `sms:${phoneNumber}?body=${encodedMessage}`;
+    
+    console.log('[SMS] Mở ứng dụng SMS với URI:', smsUri);
+    
+    // Sử dụng Capacitor Browser để mở link
+    const { Browser } = await import('@capacitor/browser');
+    await Browser.open({ url: smsUri });
+    
+    toast.info('Đã mở ứng dụng SMS', {
+      description: 'Nhấn Gửi để gửi tin nhắn cảnh báo.',
+    });
+    
+    return true;
+  } catch (error) {
+    console.error('[SMS] Lỗi mở ứng dụng SMS:', error);
+    
+    // Fallback: dùng window.location
+    try {
+      const encodedMessage = encodeURIComponent(message);
+      window.location.href = `sms:${phoneNumber}?body=${encodedMessage}`;
+      toast.info('Đã mở ứng dụng SMS', {
+        description: 'Nhấn Gửi để gửi tin nhắn cảnh báo.',
+      });
+      return true;
+    } catch {
+      toast.error('Không thể mở ứng dụng SMS');
+      return false;
+    }
+  }
+};
+
 // Gửi SMS tự động sử dụng capacitor-sms-sender
 const sendDirectSMS = async (phoneNumber: string, message: string): Promise<boolean> => {
+  // Kiểm tra chế độ SMS
+  const smsMode = getSmsMode();
+  
+  if (smsMode === 'compose') {
+    console.log('[SMS] Chế độ: Mở ứng dụng SMS soạn sẵn');
+    return await openSmsApp(phoneNumber, message);
+  }
+
+  // Chế độ auto - chỉ hoạt động trên Android native
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') {
     console.log('[SMS] Chỉ hoạt động trên thiết bị Android native');
-    toast.info('SMS chỉ hoạt động trên ứng dụng Android');
-    return false;
+    toast.info('SMS tự động chỉ hoạt động trên Android. Đang mở ứng dụng SMS...');
+    return await openSmsApp(phoneNumber, message);
   }
 
   try {
@@ -64,7 +112,7 @@ const sendDirectSMS = async (phoneNumber: string, message: string): Promise<bool
       if (!grantedSendSms || !grantedReadPhoneState) {
         toast.error('Cần cấp quyền để gửi SMS tự động', {
           description:
-            'Hãy cấp quyền “SMS” và “Trạng thái điện thoại” (READ_PHONE_STATE) cho ứng dụng trong Cài đặt.',
+            'Hãy cấp quyền "SMS" và "Trạng thái điện thoại" (READ_PHONE_STATE) cho ứng dụng trong Cài đặt.',
         });
         return false;
       }
@@ -101,32 +149,26 @@ const sendDirectSMS = async (phoneNumber: string, message: string): Promise<bool
         return true;
       }
 
-      // Nếu vẫn FAILED, trả về lỗi có đủ thông tin để debug
-      throw new Error(
-        `Gửi SMS thất bại. attempts=${JSON.stringify(attemptResults)} permissions=${JSON.stringify({
-          send_sms: hasSendSms ? 'granted' : permissions.send_sms,
-          read_phone_state: hasReadPhoneState ? 'granted' : permissions.read_phone_state,
-        })}`
-      );
+      // Nếu vẫn FAILED, fallback sang mở ứng dụng SMS
+      console.log('[SMS] Gửi tự động thất bại, fallback mở app SMS');
+      toast.warning('Gửi SMS nền thất bại', {
+        description: 'Đang mở ứng dụng SMS để gửi thủ công...',
+      });
+      return await openSmsApp(phoneNumber, message);
     }
 
-    throw new Error(
-      `Trạng thái SMS không mong đợi: ${first.status}. attempts=${JSON.stringify(attemptResults)}`
-    );
+    // Trạng thái khác (PENDING, etc.) - fallback mở app
+    console.log('[SMS] Trạng thái không xác định, fallback mở app SMS');
+    return await openSmsApp(phoneNumber, message);
   } catch (error: any) {
     console.error('[SMS] Lỗi:', error);
 
-    const errorMsg = typeof error === 'string' ? error : (error?.message ?? 'Lỗi không xác định');
-
     toast.error('Không thể gửi SMS tự động', {
-      description:
-        `${errorMsg}` +
-        (errorMsg.toLowerCase().includes('permission')
-          ? ' (Hãy cấp quyền “SMS” và “Trạng thái điện thoại”).'
-          : ' (Nếu bạn vừa cài bản mới, hãy chạy npx cap sync rồi build lại; một số máy/nhà mạng chặn gửi SMS nền).'),
+      description: 'Đang thử mở ứng dụng SMS...',
     });
 
-    return false;
+    // Fallback mở ứng dụng SMS
+    return await openSmsApp(phoneNumber, message);
   }
 };
 

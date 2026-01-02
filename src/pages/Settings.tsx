@@ -26,6 +26,7 @@ import { useGoogleMaps } from "@/hooks/useGoogleMaps";
 import { useEmailAlert } from "@/hooks/useEmailAlert";
 import { useSmsAlert } from "@/hooks/useSmsAlert";
 import { useSmsPermission } from "@/hooks/useSmsPermission";
+import { useSmsMode, SmsMode } from "@/hooks/useSmsMode";
 import { supabase } from "@/integrations/supabase/client";
 import { Capacitor } from "@capacitor/core";
 const formSchema = z.object({
@@ -65,6 +66,7 @@ const Settings = () => {
   const { sendAlertEmail } = useEmailAlert(userId);
   const { forceSendSms, checkNetworkStatus } = useSmsAlert(userId);
   const { hasPermission: hasSmsPermission, isChecking: isCheckingSmsPermission, requestSmsPermission } = useSmsPermission();
+  const { smsMode, updateSmsMode } = useSmsMode();
   const [isRequestingSmsPermission, setIsRequestingSmsPermission] = useState(false);
   const isAndroidNative = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
 
@@ -760,6 +762,38 @@ const Settings = () => {
                       </ul>
                     </div>
                   )}
+                  
+                  {/* SMS Mode Selection */}
+                  <div className="mt-4 p-4 bg-muted/30 rounded-lg border border-border">
+                    <div className="flex items-center gap-2 mb-3">
+                      <MessageSquare className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-medium text-foreground">Chế độ gửi SMS</span>
+                    </div>
+                    <RadioGroup
+                      value={smsMode}
+                      onValueChange={(value) => updateSmsMode(value as SmsMode)}
+                      className="space-y-2"
+                    >
+                      <div className="flex items-start space-x-3">
+                        <RadioGroupItem value="auto" id="sms-auto" className="mt-1" />
+                        <label htmlFor="sms-auto" className="cursor-pointer flex-1">
+                          <span className="text-sm font-medium">Tự động gửi nền</span>
+                          <p className="text-xs text-muted-foreground">
+                            Gửi SMS tự động không cần mở app (yêu cầu quyền SMS). Nếu thất bại sẽ tự động mở app SMS.
+                          </p>
+                        </label>
+                      </div>
+                      <div className="flex items-start space-x-3">
+                        <RadioGroupItem value="compose" id="sms-compose" className="mt-1" />
+                        <label htmlFor="sms-compose" className="cursor-pointer flex-1">
+                          <span className="text-sm font-medium">Mở ứng dụng SMS soạn sẵn</span>
+                          <p className="text-xs text-muted-foreground">
+                            Mở app SMS với nội dung đã soạn sẵn - bạn chỉ cần nhấn Gửi. Phù hợp với máy/ROM chặn gửi SMS nền.
+                          </p>
+                        </label>
+                      </div>
+                    </RadioGroup>
+                  </div>
                 </div>
 
                 {/* SMS Permission Section - Only show on Android */}
