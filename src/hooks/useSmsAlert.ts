@@ -33,9 +33,6 @@ const checkNetworkStatus = async (): Promise<boolean> => {
   }
 };
 
-// ID tự tăng cho mỗi SMS
-let smsIdCounter = 1;
-
 // Mở ứng dụng SMS với nội dung soạn sẵn
 const openSmsApp = async (phoneNumber: string, message: string): Promise<boolean> => {
   try {
@@ -74,7 +71,7 @@ const openSmsApp = async (phoneNumber: string, message: string): Promise<boolean
   }
 };
 
-// Gửi SMS tự động sử dụng capacitor-sms-sender
+// Gửi SMS tự động sử dụng @byteowls/capacitor-sms
 const sendDirectSMS = async (phoneNumber: string, message: string): Promise<boolean> => {
   // Kiểm tra chế độ SMS
   const smsMode = getSmsMode();
@@ -94,74 +91,27 @@ const sendDirectSMS = async (phoneNumber: string, message: string): Promise<bool
   try {
     console.log('[SMS] Gửi tự động đến:', phoneNumber);
 
-    // Import plugin động
-    const { SmsSender } = await import('capacitor-sms-sender');
+    // Import @byteowls/capacitor-sms plugin
+    const { SmsManager } = await import('@byteowls/capacitor-sms');
 
-    // Kiểm tra và yêu cầu quyền (plugin cần cả SEND_SMS + READ_PHONE_STATE)
-    const permissions = await SmsSender.checkPermissions();
-    const hasSendSms = permissions.send_sms === 'granted';
-    const hasReadPhoneState = permissions.read_phone_state === 'granted';
+    // Gửi SMS - plugin này sẽ mở app SMS với nội dung soạn sẵn
+    await SmsManager.send({
+      numbers: [phoneNumber],
+      text: message,
+    });
 
-    if (!hasSendSms || !hasReadPhoneState) {
-      console.log('[SMS] Thiếu quyền, đang yêu cầu...', permissions);
-      const requested = await SmsSender.requestPermissions();
-
-      const grantedSendSms = requested.send_sms === 'granted';
-      const grantedReadPhoneState = requested.read_phone_state === 'granted';
-
-      if (!grantedSendSms || !grantedReadPhoneState) {
-        toast.error('Cần cấp quyền để gửi SMS tự động', {
-          description:
-            'Hãy cấp quyền "SMS" và "Trạng thái điện thoại" (READ_PHONE_STATE) cho ứng dụng trong Cài đặt.',
-        });
-        return false;
-      }
-    }
-
-    const trySend = async (sim: number) => {
-      const result = await SmsSender.send({
-        id: smsIdCounter++,
-        sim,
-        phone: phoneNumber,
-        text: message,
-      });
-      console.log('[SMS] Kết quả (sim=' + sim + '):', result);
-      return result;
-    };
-
-    // Một số máy có index SIM khác nhau (0/1). Thử lần lượt để tăng tỷ lệ gửi thành công.
-    const attemptResults: Array<{ sim: number; status: string }> = [];
-
-    const first = await trySend(0);
-    attemptResults.push({ sim: 0, status: first.status });
-
-    if (first.status === 'SENT' || first.status === 'DELIVERED') {
-      toast.success('Đã gửi SMS cảnh báo!', { description: `Trạng thái: ${first.status}` });
-      return true;
-    }
-
-    if (first.status === 'FAILED') {
-      const second = await trySend(1);
-      attemptResults.push({ sim: 1, status: second.status });
-
-      if (second.status === 'SENT' || second.status === 'DELIVERED') {
-        toast.success('Đã gửi SMS cảnh báo!', { description: `Trạng thái: ${second.status}` });
-        return true;
-      }
-
-      // Nếu vẫn FAILED, fallback sang mở ứng dụng SMS
-      console.log('[SMS] Gửi tự động thất bại, fallback mở app SMS');
-      toast.warning('Gửi SMS nền thất bại', {
-        description: 'Đang mở ứng dụng SMS để gửi thủ công...',
-      });
-      return await openSmsApp(phoneNumber, message);
-    }
-
-    // Trạng thái khác (PENDING, etc.) - fallback mở app
-    console.log('[SMS] Trạng thái không xác định, fallback mở app SMS');
-    return await openSmsApp(phoneNumber, message);
+    toast.success('Đã gửi SMS cảnh báo!');
+    return true;
   } catch (error: any) {
     console.error('[SMS] Lỗi:', error);
+
+    const errorMsg = typeof error === 'string' ? error : (error?.message ?? 'Lỗi không xác định');
+
+    // Kiểm tra nếu user hủy hoặc không có quyền
+    if (errorMsg.toLowerCase().includes('cancel') || errorMsg.toLowerCase().includes('user')) {
+      toast.info('Đã hủy gửi SMS');
+      return false;
+    }
 
     toast.error('Không thể gửi SMS tự động', {
       description: 'Đang thử mở ứng dụng SMS...',
